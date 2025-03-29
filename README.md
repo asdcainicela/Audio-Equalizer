@@ -12,7 +12,7 @@ A real-time audio equalizer implementation using MATLAB App Designer. This appli
 
 ## Requirements
 
-- MATLAB R2019b or newer, preferences (R2024a)
+- MATLAB R2019b or later (R2024a recommended for best compatibility and performance)
 - MATLAB Signal Processing Toolbox
 - MATLAB Wavelet Toolbox 
 
