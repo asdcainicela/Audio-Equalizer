@@ -18,7 +18,6 @@ This application allows users to modify audio signals through frequency band adj
 - Apply equalization using **wavelet decomposition (db25)**
 - Interactive UI built in **MATLAB R2024a**
 - Exported equalized signal playback support
-- Interface screenshot included (`ss/app.png`)
 
 ## Requirements
 
