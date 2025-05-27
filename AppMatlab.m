@@ -3,6 +3,15 @@ classdef AppMatlab < matlab.apps.AppBase
     % Properties that correspond to app components
     properties (Access = public)
         UIFigure                      matlab.ui.Figure
+        ReloadButton                  matlab.ui.control.Button
+        rEditField                    matlab.ui.control.NumericEditField
+        Bitspormuestrar16Label        matlab.ui.control.Label
+        NcEditField                   matlab.ui.control.NumericEditField
+        NmerodecanalesNc1Label        matlab.ui.control.Label
+        TcEditField                   matlab.ui.control.NumericEditField
+        Tiempodecaptura54613Label     matlab.ui.control.Label
+        FsEditField                   matlab.ui.control.NumericEditField
+        FrecuenciademuestreoLabel     matlab.ui.control.Label
         SaveRecordButton              matlab.ui.control.Button
         SaveEqualizedButton           matlab.ui.control.Button
         FindAudioButton               matlab.ui.control.Button
@@ -61,26 +70,25 @@ classdef AppMatlab < matlab.apps.AppBase
         SeleccionaSalidadeaudioLabel  matlab.ui.control.Label
         DropDownInput                 matlab.ui.control.DropDown
         IntradadeaudioLabel           matlab.ui.control.Label
-        Txt3                          matlab.ui.control.Label
-        Txt2                          matlab.ui.control.Label
-        Txt1                          matlab.ui.control.Label
-        Txt4                          matlab.ui.control.Label
         Slider_B81                    matlab.ui.control.Slider
         UIAxes                        matlab.ui.control.UIAxes
     end
 
     
     properties (Access = private)
-        Fs double = 48000;      % Frecuencia de muestreo
-        Tc double = 5.4613;     % Tiempo de captura
-        r double = 16;          % Bits por muestra
-        Nc double = 1;          % Número de canales
+        Fs double = 48000;      % Sampling frequency
+        Tc double = 5.4613;     % Capture time
+        r double = 16;          % Bits per sample
+        Nc double = 1;          % Number of channels
+
         LoD double              % Filtro de descomposición bajo
         HiD double              % Filtro de descomposición alto
         LoR double              % Filtro de reconstrucción bajo
         HiR double              % Filtro de reconstrucción alto
 
         audioGrabadoOriginal double = []; % Para almacenar la grabación
+        AudioFilePath char = ''             % Ruta del archivo cargado
+
         audioEcualizado double = []; % Audio luego de ecualización
     end
     
@@ -90,10 +98,17 @@ classdef AppMatlab < matlab.apps.AppBase
 
         % Code that executes after component creation
         function startupFcn(app)
+            app.FsEditField.Value = app.Fs;
+            app.TcEditField.Value = app.Tc;
+            app.rEditField.Value = app.r;
+            app.NcEditField.Value = app.Nc;
+
             app.Image_record.Visible = 'off';
             app.Image_check.Visible = 'off';  
             app.Image_warning.Visible = 'off';  
             app.UIAxes.Visible = 'off'; % Opcional: oculta todo el eje
+
+            addpath('functions');
             % Inicializar filtros (solo 1 vez)
             [app.LoD, app.HiD, app.LoR, app.HiR] = wfilters('db25');
             %------ seleccion de micro y salida
@@ -205,6 +220,94 @@ classdef AppMatlab < matlab.apps.AppBase
             legend(app.UIAxes, {'Original', 'Ecualizada'}, 'Location', 'northeast');
             grid(app.UIAxes, 'on');
      
+        end
+
+        % Button pushed function: SaveRecordButton
+        function SaveRecordButtonPushed(app, event)
+             if isempty(app.audioGrabadoOriginal)
+                uialert(app.UIFigure, 'No hay audio grabado para guardar.', 'Advertencia');
+                return;
+            end
+            
+            [archivo, ruta] = uiputfile({'*.wav', 'Archivo WAV (*.wav)'}, 'Guardar audio grabado como');
+            
+            if isequal(archivo, 0) || isequal(ruta, 0)
+                disp('El usuario canceló la acción de guardado.');
+                return;
+            end
+            
+            % Guardar el archivo de audio
+            nombreCompleto = fullfile(ruta, archivo);
+            try
+                audiowrite(nombreCompleto, app.audioGrabadoOriginal, app.Fs);
+                disp(['Audio guardado exitosamente en: ', nombreCompleto]);
+            catch ME
+                uialert(app.UIFigure, ['Error al guardar: ' ME.message], 'Error');
+            end 
+
+        end
+
+        % Button pushed function: FindAudioButton
+        function FindAudioButtonPushed(app, event)
+           [file, path] = uigetfile({'*.wav;*.mp3', 'Audio Files (*.wav, *.mp3)'});
+            if isequal(file, 0)
+                disp('Carga cancelada por el usuario.');
+                return;
+            end
+        
+            fullPath = fullfile(path, file);
+            try
+                [x, Fs_archivo] = audioread(fullPath);
+                
+                % Resample si la frecuencia no coincide con app.Fs
+                if Fs_archivo ~= app.Fs
+                    x = resample(x, app.Fs, Fs_archivo);
+                end
+        
+                % Ajustar número de canales
+                if app.Nc == 1
+                    if size(x, 2) == 2
+                        x = mean(x, 2);  % estéreo a mono
+                    end
+                elseif app.Nc == 2
+                    if size(x, 2) == 1
+                        x = repmat(x, 1, 2);  % mono a estéreo
+                    end
+                end
+        
+                % Ajustar duración exacta a app.Tc
+                N_deseado = round(app.Tc * app.Fs);
+                N_actual = size(x, 1);
+        
+                if N_actual < N_deseado
+                    % Padding con ceros si es más corto
+                    x(N_deseado, :) = 0;
+                elseif N_actual > N_deseado
+                    % Recorte si es más largo
+                    x = x(1:N_deseado, :);
+                end
+        
+                % Guardar datos
+                app.audioGrabadoOriginal = x;
+                app.AudioFilePath = fullPath;
+                disp('Audio cargado y ajustado correctamente.');
+        
+                % Mostrar espectro
+                [X, FREC1] = fourier(x, app.Fs);
+                
+                %------------------
+                app.UIAxes.Visible = 'on';
+                cla(app.UIAxes);
+                plot(app.UIAxes, FREC1, abs(X), 'b-', 'LineWidth', 1.5);
+                xlabel(app.UIAxes, 'Frecuencia (Hz)');
+                ylabel(app.UIAxes, 'Magnitud');
+                title(app.UIAxes, 'Espectro de la señal original y ecualizada');
+                legend(app.UIAxes, {'Original', 'Ecualizada'}, 'Location', 'northeast');
+                grid(app.UIAxes, 'on');
+        
+            catch ME
+                disp(['Error al cargar el audio: ' ME.message]);
+            end
         end
 
         % Button pushed function: PlayOriginalButton
@@ -693,6 +796,33 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Image_check.Visible = 'off'; 
             app.Label_B81.Text = num2str(event.Value, '%.1fdB');
         end
+
+        % Button pushed function: ReloadButton
+        function ReloadButtonPushed(app, event)
+            try
+                nuevoFs = app.FsEditField.Value;
+                nuevoTc = app.TcEditField.Value;
+                nuevor = app.rEditField.Value;
+                nuevoNc = app.NcEditField.Value;
+        
+                % Validaciones básicas
+                if nuevoFs <= 0 || nuevoTc <= 0 || nuevor <= 0 || ~ismember(nuevoNc, [1 2])
+                    uialert(app.UIFigure, 'Verifica que Fs, Tc, r sean positivos y Nc sea 1 o 2.', 'Valores inválidos');
+                    return;
+                end
+        
+                % Actualizar las propiedades
+                app.Fs = nuevoFs;
+                app.Tc = nuevoTc;
+                app.r = nuevor;
+                app.Nc = nuevoNc;
+        
+                disp('Parámetros actualizados:');
+                fprintf('Fs = %.0f Hz, Tc = %.2f s, r = %.0f bits, Nc = %d canales\n', app.Fs, app.Tc, app.r, app.Nc);
+            catch ME
+                uialert(app.UIFigure, ['Error al actualizar parámetros: ' ME.message], 'Error');
+            end
+        end
     end
 
     % Component initialization
@@ -706,8 +836,9 @@ classdef AppMatlab < matlab.apps.AppBase
 
             % Create UIFigure and hide until all components are created
             app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.AutoResizeChildren = 'off';
             app.UIFigure.Color = [0.9412 0.9608 0.9804];
-            app.UIFigure.Position = [100 100 1401 753];
+            app.UIFigure.Position = [0 0 1415 803];
             app.UIFigure.Name = 'MATLAB App';
 
             % Create UIAxes
@@ -716,7 +847,7 @@ classdef AppMatlab < matlab.apps.AppBase
             xlabel(app.UIAxes, 'X')
             ylabel(app.UIAxes, 'Y')
             zlabel(app.UIAxes, 'Z')
-            app.UIAxes.Position = [574 31 589 307];
+            app.UIAxes.Position = [587 56 589 307];
 
             % Create Slider_B81
             app.Slider_B81 = uislider(app.UIFigure);
@@ -727,35 +858,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B81.ValueChangingFcn = createCallbackFcn(app, @Slider_B81ValueChanging, true);
             app.Slider_B81.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B81.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B81.Position = [516 402 3 150];
-
-            % Create Txt4
-            app.Txt4 = uilabel(app.UIFigure);
-            app.Txt4.FontName = 'Verdana';
-            app.Txt4.FontSize = 15;
-            app.Txt4.Position = [1063 721 87 22];
-            app.Txt4.Text = 'Fs= 48000';
-
-            % Create Txt1
-            app.Txt1 = uilabel(app.UIFigure);
-            app.Txt1.FontName = 'Verdana';
-            app.Txt1.FontSize = 15;
-            app.Txt1.Position = [1167 721 91 22];
-            app.Txt1.Text = 'Tc= 5.4613';
-
-            % Create Txt2
-            app.Txt2 = uilabel(app.UIFigure);
-            app.Txt2.FontName = 'Verdana';
-            app.Txt2.FontSize = 15;
-            app.Txt2.Position = [1274 721 48 22];
-            app.Txt2.Text = 'r= 16';
-
-            % Create Txt3
-            app.Txt3 = uilabel(app.UIFigure);
-            app.Txt3.FontName = 'Verdana';
-            app.Txt3.FontSize = 15;
-            app.Txt3.Position = [1341 721 51 22];
-            app.Txt3.Text = 'Nc= 1';
+            app.Slider_B81.Position = [517 427 3 150];
 
             % Create IntradadeaudioLabel
             app.IntradadeaudioLabel = uilabel(app.UIFigure);
@@ -764,7 +867,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.IntradadeaudioLabel.FontName = 'Verdana';
             app.IntradadeaudioLabel.FontSize = 16;
             app.IntradadeaudioLabel.FontColor = [0.302 0.302 0.302];
-            app.IntradadeaudioLabel.Position = [130 633 140 22];
+            app.IntradadeaudioLabel.Position = [35 670 140 22];
             app.IntradadeaudioLabel.Text = 'Input de audio   ';
 
             % Create DropDownInput
@@ -773,7 +876,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.DropDownInput.FontSize = 16;
             app.DropDownInput.FontColor = [0.302 0.302 0.302];
             app.DropDownInput.BackgroundColor = [0.9412 0.9608 0.9804];
-            app.DropDownInput.Position = [285 632 179 23];
+            app.DropDownInput.Position = [190 669 179 23];
 
             % Create SeleccionaSalidadeaudioLabel
             app.SeleccionaSalidadeaudioLabel = uilabel(app.UIFigure);
@@ -782,7 +885,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.SeleccionaSalidadeaudioLabel.FontName = 'Verdana';
             app.SeleccionaSalidadeaudioLabel.FontSize = 17;
             app.SeleccionaSalidadeaudioLabel.FontColor = [0.302 0.302 0.302];
-            app.SeleccionaSalidadeaudioLabel.Position = [129 598 143 23];
+            app.SeleccionaSalidadeaudioLabel.Position = [34 635 143 23];
             app.SeleccionaSalidadeaudioLabel.Text = 'Output de audio';
 
             % Create DropDownOutput
@@ -791,7 +894,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.DropDownOutput.FontSize = 16;
             app.DropDownOutput.FontColor = [0.302 0.302 0.302];
             app.DropDownOutput.BackgroundColor = [0.9412 0.9608 0.9804];
-            app.DropDownOutput.Position = [287 598 179 23];
+            app.DropDownOutput.Position = [192 635 179 23];
 
             % Create RecordAudioButton
             app.RecordAudioButton = uibutton(app.UIFigure, 'push');
@@ -800,7 +903,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.RecordAudioButton.FontName = 'Verdana';
             app.RecordAudioButton.FontSize = 18;
             app.RecordAudioButton.FontColor = [1 1 1];
-            app.RecordAudioButton.Position = [53 262 185 52];
+            app.RecordAudioButton.Position = [54 287 185 52];
             app.RecordAudioButton.Text = 'Record Audio';
 
             % Create PlayOriginalButton
@@ -809,7 +912,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.PlayOriginalButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.PlayOriginalButton.FontName = 'Verdana';
             app.PlayOriginalButton.FontSize = 18;
-            app.PlayOriginalButton.Position = [1203 261 149 54];
+            app.PlayOriginalButton.Position = [1216 286 149 54];
             app.PlayOriginalButton.Text = 'Play Original';
 
             % Create PlayEqualizedButton
@@ -818,7 +921,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.PlayEqualizedButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.PlayEqualizedButton.FontName = 'Verdana';
             app.PlayEqualizedButton.FontSize = 18;
-            app.PlayEqualizedButton.Position = [1203 102 150 54];
+            app.PlayEqualizedButton.Position = [1216 105 150 54];
             app.PlayEqualizedButton.Text = 'Play Equalized';
 
             % Create EqualizeAudioButton
@@ -828,7 +931,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.EqualizeAudioButton.FontName = 'Verdana';
             app.EqualizeAudioButton.FontSize = 18;
             app.EqualizeAudioButton.FontColor = [1 1 1];
-            app.EqualizeAudioButton.Position = [48 53 197 52];
+            app.EqualizeAudioButton.Position = [48 106 197 52];
             app.EqualizeAudioButton.Text = 'Equalize Audio';
 
             % Create BandsSwitchLabel
@@ -836,9 +939,9 @@ classdef AppMatlab < matlab.apps.AppBase
             app.BandsSwitchLabel.BackgroundColor = [0.9412 0.9608 0.9804];
             app.BandsSwitchLabel.HorizontalAlignment = 'center';
             app.BandsSwitchLabel.FontName = 'Verdana';
-            app.BandsSwitchLabel.FontSize = 17;
+            app.BandsSwitchLabel.FontSize = 18;
             app.BandsSwitchLabel.FontColor = [0.5294 0.1216 0.0471];
-            app.BandsSwitchLabel.Position = [914 630 57 23];
+            app.BandsSwitchLabel.Position = [1221 674 60 24];
             app.BandsSwitchLabel.Text = 'Bands';
 
             % Create BandsSwitch
@@ -846,8 +949,8 @@ classdef AppMatlab < matlab.apps.AppBase
             app.BandsSwitch.Items = {'[-6, 6]', '[12, -12]'};
             app.BandsSwitch.ValueChangedFcn = createCallbackFcn(app, @BandsSwitchValueChanged, true);
             app.BandsSwitch.FontName = 'Verdana';
-            app.BandsSwitch.FontSize = 17;
-            app.BandsSwitch.Position = [920 598 45 20];
+            app.BandsSwitch.FontSize = 18;
+            app.BandsSwitch.Position = [1228 643 45 20];
             app.BandsSwitch.Value = '[-6, 6]';
 
             % Create Slider_B93
@@ -859,7 +962,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B93.ValueChangingFcn = createCallbackFcn(app, @Slider_B93ValueChanging, true);
             app.Slider_B93.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B93.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B93.Position = [723 402 3 150];
+            app.Slider_B93.Position = [724 427 3 150];
 
             % Create Slider_B94
             app.Slider_B94 = uislider(app.UIFigure);
@@ -870,7 +973,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B94.ValueChangingFcn = createCallbackFcn(app, @Slider_B94ValueChanging, true);
             app.Slider_B94.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B94.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B94.Position = [792 401 3 150];
+            app.Slider_B94.Position = [793 426 3 150];
 
             % Create Slider_B95
             app.Slider_B95 = uislider(app.UIFigure);
@@ -881,7 +984,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B95.ValueChangingFcn = createCallbackFcn(app, @Slider_B95ValueChanging, true);
             app.Slider_B95.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B95.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B95.Position = [861 399 3 150];
+            app.Slider_B95.Position = [862 424 3 150];
 
             % Create Slider_B96
             app.Slider_B96 = uislider(app.UIFigure);
@@ -892,7 +995,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B96.ValueChangingFcn = createCallbackFcn(app, @Slider_B96ValueChanging, true);
             app.Slider_B96.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B96.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B96.Position = [929 398 3 150];
+            app.Slider_B96.Position = [930 423 3 150];
 
             % Create Slider_B97
             app.Slider_B97 = uislider(app.UIFigure);
@@ -903,7 +1006,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B97.ValueChangingFcn = createCallbackFcn(app, @Slider_B97ValueChanging, true);
             app.Slider_B97.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B97.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B97.Position = [997 402 3 150];
+            app.Slider_B97.Position = [998 427 3 150];
 
             % Create Slider_B98
             app.Slider_B98 = uislider(app.UIFigure);
@@ -914,7 +1017,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B98.ValueChangingFcn = createCallbackFcn(app, @Slider_B98ValueChanging, true);
             app.Slider_B98.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B98.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B98.Position = [1065 402 3 150];
+            app.Slider_B98.Position = [1066 427 3 150];
 
             % Create Slider_B85
             app.Slider_B85 = uislider(app.UIFigure);
@@ -925,7 +1028,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B85.ValueChangingFcn = createCallbackFcn(app, @Slider_B85ValueChanging, true);
             app.Slider_B85.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B85.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B85.Position = [585 402 3 150];
+            app.Slider_B85.Position = [586 427 3 150];
 
             % Create Slider_B86
             app.Slider_B86 = uislider(app.UIFigure);
@@ -936,7 +1039,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B86.ValueChangingFcn = createCallbackFcn(app, @Slider_B86ValueChanging, true);
             app.Slider_B86.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B86.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B86.Position = [654 402 3 150];
+            app.Slider_B86.Position = [655 427 3 150];
 
             % Create Slider_B913
             app.Slider_B913 = uislider(app.UIFigure);
@@ -947,7 +1050,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B913.ValueChangingFcn = createCallbackFcn(app, @Slider_B913ValueChanging, true);
             app.Slider_B913.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B913.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B913.Position = [1133 402 3 150];
+            app.Slider_B913.Position = [1134 427 3 150];
 
             % Create Slider_B914
             app.Slider_B914 = uislider(app.UIFigure);
@@ -958,7 +1061,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B914.ValueChangingFcn = createCallbackFcn(app, @Slider_B914ValueChanging, true);
             app.Slider_B914.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B914.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B914.Position = [1201 402 3 150];
+            app.Slider_B914.Position = [1202 427 3 150];
 
             % Create Slider_B915
             app.Slider_B915 = uislider(app.UIFigure);
@@ -969,7 +1072,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B915.ValueChangingFcn = createCallbackFcn(app, @Slider_B915ValueChanging, true);
             app.Slider_B915.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B915.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B915.Position = [1269 402 3 150];
+            app.Slider_B915.Position = [1270 427 3 150];
 
             % Create Slider_B916
             app.Slider_B916 = uislider(app.UIFigure);
@@ -980,11 +1083,11 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B916.ValueChangingFcn = createCallbackFcn(app, @Slider_B916ValueChanging, true);
             app.Slider_B916.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B916.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B916.Position = [1337 400 3 150];
+            app.Slider_B916.Position = [1338 425 3 150];
 
             % Create Image_record
             app.Image_record = uiimage(app.UIFigure);
-            app.Image_record.Position = [274 267 57 43];
+            app.Image_record.Position = [276 292 57 43];
             app.Image_record.ImageSource = fullfile(pathToMLAPP, 'img', 'record.png');
 
             % Create AUDIOEQUALIZERLabel
@@ -993,7 +1096,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.AUDIOEQUALIZERLabel.FontName = 'Verdana';
             app.AUDIOEQUALIZERLabel.FontSize = 36;
             app.AUDIOEQUALIZERLabel.FontWeight = 'bold';
-            app.AUDIOEQUALIZERLabel.Position = [522 675 393 48];
+            app.AUDIOEQUALIZERLabel.Position = [513 735 393 48];
             app.AUDIOEQUALIZERLabel.Text = 'AUDIO EQUALIZER';
 
             % Create LabelMax
@@ -1001,7 +1104,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.LabelMax.FontSize = 18;
             app.LabelMax.FontWeight = 'bold';
             app.LabelMax.FontColor = [1 0 0];
-            app.LabelMax.Position = [1366 529 25 23];
+            app.LabelMax.Position = [1367 554 25 23];
             app.LabelMax.Text = '6';
 
             % Create LabelMin
@@ -1009,7 +1112,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.LabelMin.FontSize = 18;
             app.LabelMin.FontWeight = 'bold';
             app.LabelMin.FontColor = [1 0 0];
-            app.LabelMin.Position = [1366 378 48 23];
+            app.LabelMin.Position = [1366 428 48 23];
             app.LabelMin.Text = '-6';
 
             % Create Slider_B12
@@ -1021,7 +1124,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B12.ValueChangingFcn = createCallbackFcn(app, @Slider_B12ValueChanging, true);
             app.Slider_B12.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B12.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B12.Position = [33 402 3 150];
+            app.Slider_B12.Position = [34 427 3 150];
 
             % Create Slider_B53
             app.Slider_B53 = uislider(app.UIFigure);
@@ -1032,7 +1135,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B53.ValueChangingFcn = createCallbackFcn(app, @Slider_B53ValueChanging, true);
             app.Slider_B53.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B53.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B53.Position = [240 402 3 150];
+            app.Slider_B53.Position = [241 427 3 150];
 
             % Create Slider_B54
             app.Slider_B54 = uislider(app.UIFigure);
@@ -1043,7 +1146,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B54.ValueChangingFcn = createCallbackFcn(app, @Slider_B54ValueChanging, true);
             app.Slider_B54.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B54.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B54.Position = [309 402 3 150];
+            app.Slider_B54.Position = [310 427 3 150];
 
             % Create Slider_B63
             app.Slider_B63 = uislider(app.UIFigure);
@@ -1054,7 +1157,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B63.ValueChangingFcn = createCallbackFcn(app, @Slider_B63ValueChanging, true);
             app.Slider_B63.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B63.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B63.Position = [378 402 3 150];
+            app.Slider_B63.Position = [379 427 3 150];
 
             % Create Slider_B64
             app.Slider_B64 = uislider(app.UIFigure);
@@ -1065,7 +1168,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B64.ValueChangingFcn = createCallbackFcn(app, @Slider_B64ValueChanging, true);
             app.Slider_B64.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B64.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B64.Position = [447 402 3 150];
+            app.Slider_B64.Position = [448 427 3 150];
 
             % Create Slider_B22
             app.Slider_B22 = uislider(app.UIFigure);
@@ -1076,7 +1179,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B22.ValueChangingFcn = createCallbackFcn(app, @Slider_B22ValueChanging, true);
             app.Slider_B22.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B22.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B22.Position = [102 402 3 150];
+            app.Slider_B22.Position = [103 427 3 150];
 
             % Create Slider_B32
             app.Slider_B32 = uislider(app.UIFigure);
@@ -1087,16 +1190,16 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Slider_B32.ValueChangingFcn = createCallbackFcn(app, @Slider_B32ValueChanging, true);
             app.Slider_B32.MinorTicks = [-6 -5.5 -5 -4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6];
             app.Slider_B32.FontColor = [0.1804 0.4314 0.6588];
-            app.Slider_B32.Position = [171 402 3 150];
+            app.Slider_B32.Position = [172 427 3 150];
 
             % Create Image_warning
             app.Image_warning = uiimage(app.UIFigure);
-            app.Image_warning.Position = [268 50 71 58];
+            app.Image_warning.Position = [269 103 71 58];
             app.Image_warning.ImageSource = fullfile(pathToMLAPP, 'img', 'warning.png');
 
             % Create Image_check
             app.Image_check = uiimage(app.UIFigure);
-            app.Image_check.Position = [280 58 48 43];
+            app.Image_check.Position = [281 111 48 43];
             app.Image_check.ImageSource = fullfile(pathToMLAPP, 'img', 'check.png');
 
             % Create Label_B12
@@ -1104,7 +1207,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B12.HorizontalAlignment = 'center';
             app.Label_B12.FontName = 'Verdana';
             app.Label_B12.FontSize = 10;
-            app.Label_B12.Position = [9 372 55 31];
+            app.Label_B12.Position = [10 397 55 31];
             app.Label_B12.Text = ' 0';
 
             % Create Label_B22
@@ -1112,7 +1215,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B22.HorizontalAlignment = 'center';
             app.Label_B22.FontName = 'Verdana';
             app.Label_B22.FontSize = 10;
-            app.Label_B22.Position = [74 373 54 30];
+            app.Label_B22.Position = [75 398 54 30];
             app.Label_B22.Text = ' 0';
 
             % Create Label_B32
@@ -1120,7 +1223,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B32.HorizontalAlignment = 'center';
             app.Label_B32.FontName = 'Verdana';
             app.Label_B32.FontSize = 10;
-            app.Label_B32.Position = [138 373 59 30];
+            app.Label_B32.Position = [139 398 59 30];
             app.Label_B32.Text = ' 0';
 
             % Create Label_B53
@@ -1128,7 +1231,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B53.HorizontalAlignment = 'center';
             app.Label_B53.FontName = 'Verdana';
             app.Label_B53.FontSize = 10;
-            app.Label_B53.Position = [207 373 59 30];
+            app.Label_B53.Position = [208 398 59 30];
             app.Label_B53.Text = ' 0';
 
             % Create Label_B54
@@ -1136,7 +1239,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B54.HorizontalAlignment = 'center';
             app.Label_B54.FontName = 'Verdana';
             app.Label_B54.FontSize = 10;
-            app.Label_B54.Position = [276 373 59 30];
+            app.Label_B54.Position = [277 398 59 30];
             app.Label_B54.Text = ' 0';
 
             % Create Label_B63
@@ -1144,7 +1247,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B63.HorizontalAlignment = 'center';
             app.Label_B63.FontName = 'Verdana';
             app.Label_B63.FontSize = 10;
-            app.Label_B63.Position = [345 373 59 30];
+            app.Label_B63.Position = [346 398 59 30];
             app.Label_B63.Text = ' 0';
 
             % Create Label_B64
@@ -1152,7 +1255,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B64.HorizontalAlignment = 'center';
             app.Label_B64.FontName = 'Verdana';
             app.Label_B64.FontSize = 10;
-            app.Label_B64.Position = [414 373 59 30];
+            app.Label_B64.Position = [415 398 59 30];
             app.Label_B64.Text = ' 0';
 
             % Create Label_B81
@@ -1160,7 +1263,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B81.HorizontalAlignment = 'center';
             app.Label_B81.FontName = 'Verdana';
             app.Label_B81.FontSize = 10;
-            app.Label_B81.Position = [483 373 59 30];
+            app.Label_B81.Position = [484 398 59 30];
             app.Label_B81.Text = ' 0';
 
             % Create Label_B85
@@ -1168,7 +1271,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B85.HorizontalAlignment = 'center';
             app.Label_B85.FontName = 'Verdana';
             app.Label_B85.FontSize = 10;
-            app.Label_B85.Position = [552 373 59 30];
+            app.Label_B85.Position = [553 398 59 30];
             app.Label_B85.Text = ' 0';
 
             % Create Label_B86
@@ -1176,7 +1279,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B86.HorizontalAlignment = 'center';
             app.Label_B86.FontName = 'Verdana';
             app.Label_B86.FontSize = 10;
-            app.Label_B86.Position = [621 373 59 30];
+            app.Label_B86.Position = [622 398 59 30];
             app.Label_B86.Text = ' 0';
 
             % Create Label_B93
@@ -1184,7 +1287,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B93.HorizontalAlignment = 'center';
             app.Label_B93.FontName = 'Verdana';
             app.Label_B93.FontSize = 10;
-            app.Label_B93.Position = [690 373 59 30];
+            app.Label_B93.Position = [691 398 59 30];
             app.Label_B93.Text = ' 0';
 
             % Create Label_B94
@@ -1192,7 +1295,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B94.HorizontalAlignment = 'center';
             app.Label_B94.FontName = 'Verdana';
             app.Label_B94.FontSize = 10;
-            app.Label_B94.Position = [759 373 59 30];
+            app.Label_B94.Position = [760 398 59 30];
             app.Label_B94.Text = ' 0';
 
             % Create Label_B95
@@ -1200,7 +1303,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B95.HorizontalAlignment = 'center';
             app.Label_B95.FontName = 'Verdana';
             app.Label_B95.FontSize = 10;
-            app.Label_B95.Position = [828 373 59 30];
+            app.Label_B95.Position = [829 398 59 30];
             app.Label_B95.Text = ' 0';
 
             % Create Label_B96
@@ -1208,7 +1311,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B96.HorizontalAlignment = 'center';
             app.Label_B96.FontName = 'Verdana';
             app.Label_B96.FontSize = 10;
-            app.Label_B96.Position = [897 373 59 30];
+            app.Label_B96.Position = [898 398 59 30];
             app.Label_B96.Text = ' 0';
 
             % Create Label_B97
@@ -1216,7 +1319,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B97.HorizontalAlignment = 'center';
             app.Label_B97.FontName = 'Verdana';
             app.Label_B97.FontSize = 10;
-            app.Label_B97.Position = [966 373 59 30];
+            app.Label_B97.Position = [967 398 59 30];
             app.Label_B97.Text = ' 0';
 
             % Create Label_B98
@@ -1224,7 +1327,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B98.HorizontalAlignment = 'center';
             app.Label_B98.FontName = 'Verdana';
             app.Label_B98.FontSize = 10;
-            app.Label_B98.Position = [1035 373 59 30];
+            app.Label_B98.Position = [1036 398 59 30];
             app.Label_B98.Text = ' 0';
 
             % Create Label_B913
@@ -1232,7 +1335,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B913.HorizontalAlignment = 'center';
             app.Label_B913.FontName = 'Verdana';
             app.Label_B913.FontSize = 10;
-            app.Label_B913.Position = [1104 373 59 30];
+            app.Label_B913.Position = [1105 398 59 30];
             app.Label_B913.Text = ' 0';
 
             % Create Label_B914
@@ -1240,7 +1343,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B914.HorizontalAlignment = 'center';
             app.Label_B914.FontName = 'Verdana';
             app.Label_B914.FontSize = 10;
-            app.Label_B914.Position = [1173 373 59 30];
+            app.Label_B914.Position = [1174 398 59 30];
             app.Label_B914.Text = ' 0';
 
             % Create Label_B915
@@ -1248,7 +1351,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B915.HorizontalAlignment = 'center';
             app.Label_B915.FontName = 'Verdana';
             app.Label_B915.FontSize = 10;
-            app.Label_B915.Position = [1241 373 59 30];
+            app.Label_B915.Position = [1242 398 59 30];
             app.Label_B915.Text = ' 0';
 
             % Create Label_B916
@@ -1256,16 +1359,17 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B916.HorizontalAlignment = 'center';
             app.Label_B916.FontName = 'Verdana';
             app.Label_B916.FontSize = 10;
-            app.Label_B916.Position = [1309 373 59 30];
+            app.Label_B916.Position = [1310 398 59 30];
             app.Label_B916.Text = ' 0';
 
             % Create FindAudioButton
             app.FindAudioButton = uibutton(app.UIFigure, 'push');
+            app.FindAudioButton.ButtonPushedFcn = createCallbackFcn(app, @FindAudioButtonPushed, true);
             app.FindAudioButton.BackgroundColor = [0.1608 0.4706 0.6706];
             app.FindAudioButton.FontName = 'Verdana';
             app.FindAudioButton.FontSize = 18;
             app.FindAudioButton.FontColor = [1 1 1];
-            app.FindAudioButton.Position = [53 193 185 52];
+            app.FindAudioButton.Position = [54 218 185 52];
             app.FindAudioButton.Text = 'Find Audio';
 
             % Create SaveEqualizedButton
@@ -1273,16 +1377,94 @@ classdef AppMatlab < matlab.apps.AppBase
             app.SaveEqualizedButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.SaveEqualizedButton.FontName = 'Verdana';
             app.SaveEqualizedButton.FontSize = 18;
-            app.SaveEqualizedButton.Position = [368 48 151 54];
+            app.SaveEqualizedButton.Position = [381 105 151 54];
             app.SaveEqualizedButton.Text = 'Save Equalized';
 
             % Create SaveRecordButton
             app.SaveRecordButton = uibutton(app.UIFigure, 'push');
+            app.SaveRecordButton.ButtonPushedFcn = createCallbackFcn(app, @SaveRecordButtonPushed, true);
             app.SaveRecordButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.SaveRecordButton.FontName = 'Verdana';
             app.SaveRecordButton.FontSize = 18;
-            app.SaveRecordButton.Position = [366 256 151 54];
+            app.SaveRecordButton.Position = [381 286 151 54];
             app.SaveRecordButton.Text = 'Save Record';
+
+            % Create FrecuenciademuestreoLabel
+            app.FrecuenciademuestreoLabel = uilabel(app.UIFigure);
+            app.FrecuenciademuestreoLabel.HorizontalAlignment = 'right';
+            app.FrecuenciademuestreoLabel.FontName = 'Verdana';
+            app.FrecuenciademuestreoLabel.FontSize = 15;
+            app.FrecuenciademuestreoLabel.Position = [470 676 111 22];
+            app.FrecuenciademuestreoLabel.Text = 'Sampling rate';
+
+            % Create FsEditField
+            app.FsEditField = uieditfield(app.UIFigure, 'numeric');
+            app.FsEditField.ValueDisplayFormat = '%.0f';
+            app.FsEditField.HorizontalAlignment = 'center';
+            app.FsEditField.FontName = 'Verdana';
+            app.FsEditField.FontSize = 15;
+            app.FsEditField.Position = [596 676 100 22];
+            app.FsEditField.Value = 48000;
+
+            % Create Tiempodecaptura54613Label
+            app.Tiempodecaptura54613Label = uilabel(app.UIFigure);
+            app.Tiempodecaptura54613Label.HorizontalAlignment = 'right';
+            app.Tiempodecaptura54613Label.FontName = 'Verdana';
+            app.Tiempodecaptura54613Label.FontSize = 15;
+            app.Tiempodecaptura54613Label.Position = [470 635 103 22];
+            app.Tiempodecaptura54613Label.Text = 'Capture time';
+
+            % Create TcEditField
+            app.TcEditField = uieditfield(app.UIFigure, 'numeric');
+            app.TcEditField.Limits = [0 Inf];
+            app.TcEditField.ValueDisplayFormat = '%11.5g';
+            app.TcEditField.HorizontalAlignment = 'center';
+            app.TcEditField.FontName = 'Verdana';
+            app.TcEditField.FontSize = 15;
+            app.TcEditField.Position = [588 635 100 22];
+            app.TcEditField.Value = 5.4613;
+
+            % Create NmerodecanalesNc1Label
+            app.NmerodecanalesNc1Label = uilabel(app.UIFigure);
+            app.NmerodecanalesNc1Label.HorizontalAlignment = 'right';
+            app.NmerodecanalesNc1Label.FontName = 'Verdana';
+            app.NmerodecanalesNc1Label.FontSize = 15;
+            app.NmerodecanalesNc1Label.Position = [740 635 126 22];
+            app.NmerodecanalesNc1Label.Text = 'Number of chan';
+
+            % Create NcEditField
+            app.NcEditField = uieditfield(app.UIFigure, 'numeric');
+            app.NcEditField.Limits = [1 2];
+            app.NcEditField.HorizontalAlignment = 'center';
+            app.NcEditField.FontName = 'Verdana';
+            app.NcEditField.FontSize = 15;
+            app.NcEditField.Position = [881 635 100 22];
+            app.NcEditField.Value = 1;
+
+            % Create Bitspormuestrar16Label
+            app.Bitspormuestrar16Label = uilabel(app.UIFigure);
+            app.Bitspormuestrar16Label.HorizontalAlignment = 'right';
+            app.Bitspormuestrar16Label.FontName = 'Verdana';
+            app.Bitspormuestrar16Label.FontSize = 15;
+            app.Bitspormuestrar16Label.Position = [740 676 122 22];
+            app.Bitspormuestrar16Label.Text = 'Bits per sample';
+
+            % Create rEditField
+            app.rEditField = uieditfield(app.UIFigure, 'numeric');
+            app.rEditField.HorizontalAlignment = 'center';
+            app.rEditField.FontName = 'Verdana';
+            app.rEditField.FontSize = 15;
+            app.rEditField.Position = [877 676 100 22];
+            app.rEditField.Value = 16;
+
+            % Create ReloadButton
+            app.ReloadButton = uibutton(app.UIFigure, 'push');
+            app.ReloadButton.ButtonPushedFcn = createCallbackFcn(app, @ReloadButtonPushed, true);
+            app.ReloadButton.BackgroundColor = [0.8196 0.9098 1];
+            app.ReloadButton.FontName = 'Verdana';
+            app.ReloadButton.FontSize = 18;
+            app.ReloadButton.Position = [1010 639 85 52];
+            app.ReloadButton.Text = 'Reload';
 
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
