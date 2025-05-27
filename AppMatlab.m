@@ -3,6 +3,9 @@ classdef AppMatlab < matlab.apps.AppBase
     % Properties that correspond to app components
     properties (Access = public)
         UIFigure                      matlab.ui.Figure
+        SaveRecordButton              matlab.ui.control.Button
+        SaveEqualizedButton           matlab.ui.control.Button
+        FindAudioButton               matlab.ui.control.Button
         Label_B916                    matlab.ui.control.Label
         Label_B915                    matlab.ui.control.Label
         Label_B914                    matlab.ui.control.Label
@@ -713,7 +716,7 @@ classdef AppMatlab < matlab.apps.AppBase
             xlabel(app.UIAxes, 'X')
             ylabel(app.UIAxes, 'Y')
             zlabel(app.UIAxes, 'Z')
-            app.UIAxes.Position = [380 28 589 307];
+            app.UIAxes.Position = [574 31 589 307];
 
             % Create Slider_B81
             app.Slider_B81 = uislider(app.UIFigure);
@@ -806,7 +809,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.PlayOriginalButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.PlayOriginalButton.FontName = 'Verdana';
             app.PlayOriginalButton.FontSize = 18;
-            app.PlayOriginalButton.Position = [1139 261 149 54];
+            app.PlayOriginalButton.Position = [1203 261 149 54];
             app.PlayOriginalButton.Text = 'Play Original';
 
             % Create PlayEqualizedButton
@@ -815,7 +818,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.PlayEqualizedButton.BackgroundColor = [0.9412 0.9608 0.9804];
             app.PlayEqualizedButton.FontName = 'Verdana';
             app.PlayEqualizedButton.FontSize = 18;
-            app.PlayEqualizedButton.Position = [1139 102 150 54];
+            app.PlayEqualizedButton.Position = [1203 102 150 54];
             app.PlayEqualizedButton.Text = 'Play Equalized';
 
             % Create EqualizeAudioButton
@@ -825,7 +828,7 @@ classdef AppMatlab < matlab.apps.AppBase
             app.EqualizeAudioButton.FontName = 'Verdana';
             app.EqualizeAudioButton.FontSize = 18;
             app.EqualizeAudioButton.FontColor = [1 1 1];
-            app.EqualizeAudioButton.Position = [47 103 197 52];
+            app.EqualizeAudioButton.Position = [48 53 197 52];
             app.EqualizeAudioButton.Text = 'Equalize Audio';
 
             % Create BandsSwitchLabel
@@ -1088,12 +1091,12 @@ classdef AppMatlab < matlab.apps.AppBase
 
             % Create Image_warning
             app.Image_warning = uiimage(app.UIFigure);
-            app.Image_warning.Position = [267 100 71 58];
+            app.Image_warning.Position = [268 50 71 58];
             app.Image_warning.ImageSource = fullfile(pathToMLAPP, 'img', 'warning.png');
 
             % Create Image_check
             app.Image_check = uiimage(app.UIFigure);
-            app.Image_check.Position = [279 108 48 43];
+            app.Image_check.Position = [280 58 48 43];
             app.Image_check.ImageSource = fullfile(pathToMLAPP, 'img', 'check.png');
 
             % Create Label_B12
@@ -1255,6 +1258,31 @@ classdef AppMatlab < matlab.apps.AppBase
             app.Label_B916.FontSize = 10;
             app.Label_B916.Position = [1309 373 59 30];
             app.Label_B916.Text = ' 0';
+
+            % Create FindAudioButton
+            app.FindAudioButton = uibutton(app.UIFigure, 'push');
+            app.FindAudioButton.BackgroundColor = [0.1608 0.4706 0.6706];
+            app.FindAudioButton.FontName = 'Verdana';
+            app.FindAudioButton.FontSize = 18;
+            app.FindAudioButton.FontColor = [1 1 1];
+            app.FindAudioButton.Position = [53 193 185 52];
+            app.FindAudioButton.Text = 'Find Audio';
+
+            % Create SaveEqualizedButton
+            app.SaveEqualizedButton = uibutton(app.UIFigure, 'push');
+            app.SaveEqualizedButton.BackgroundColor = [0.9412 0.9608 0.9804];
+            app.SaveEqualizedButton.FontName = 'Verdana';
+            app.SaveEqualizedButton.FontSize = 18;
+            app.SaveEqualizedButton.Position = [368 48 151 54];
+            app.SaveEqualizedButton.Text = 'Save Equalized';
+
+            % Create SaveRecordButton
+            app.SaveRecordButton = uibutton(app.UIFigure, 'push');
+            app.SaveRecordButton.BackgroundColor = [0.9412 0.9608 0.9804];
+            app.SaveRecordButton.FontName = 'Verdana';
+            app.SaveRecordButton.FontSize = 18;
+            app.SaveRecordButton.Position = [366 256 151 54];
+            app.SaveRecordButton.Text = 'Save Record';
 
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
